@@ -1,0 +1,25 @@
+{
+  "name": "plausible-futures",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:run": "vitest run"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.0.0",
+    "@vitest/ui": "^4.0.15",
+    "happy-dom": "^20.0.11",
+    "vite": "^7.2.7",
+    "vitest": "^4.0.15"
+  }
+}
