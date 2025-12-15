@@ -2,5 +2,7 @@ node_modules/
 *.db
 *.db-journal
 .env
+!.env.production
+!.env.example
 .DS_Store
 

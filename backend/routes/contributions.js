@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import db from '../db.js';
+import db from '../db-postgres.js';
 
 const router = Router();
 
@@ -13,7 +13,7 @@ const router = Router();
  * - Updates session_participants status to "submitted"
  * - Returns count of contributions saved
  */
-router.post('/sessions/:sessionId/contributions', (req, res) => {
+router.post('/sessions/:sessionId/contributions', async (req, res) => {
   const { sessionId } = req.params;
   const { participantId, participantEmail, participantName, submissions } = req.body;
 
@@ -33,7 +33,7 @@ router.post('/sessions/:sessionId/contributions', (req, res) => {
   }
 
   // Check session exists
-  const session = db.prepare('SELECT session_id, session_state FROM sessions WHERE session_id = ?').get(sessionId);
+  const session = await db.prepare('SELECT session_id, session_state FROM sessions WHERE session_id = ?').get(sessionId);
   if (!session) {
     return res.status(404).json({
       success: false,
@@ -52,18 +52,26 @@ router.post('/sessions/:sessionId/contributions', (req, res) => {
   try {
     let savedCount = 0;
 
-    // Insert or replace contributions
+    // Insert or replace contributions (PostgreSQL syntax)
     const insertContribution = db.prepare(`
-      INSERT OR REPLACE INTO contributions (
+      INSERT INTO contributions (
         contribution_id, session_id, topic_id, participant_id,
         current_status, minor_impact, disruption, reimagination, submitted_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT (session_id, topic_id, participant_id) 
+      DO UPDATE SET
+        contribution_id = EXCLUDED.contribution_id,
+        current_status = EXCLUDED.current_status,
+        minor_impact = EXCLUDED.minor_impact,
+        disruption = EXCLUDED.disruption,
+        reimagination = EXCLUDED.reimagination,
+        submitted_at = EXCLUDED.submitted_at
     `);
 
     for (const submission of submissions) {
       const contributionId = `contrib-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       
-      insertContribution.run(
+      await insertContribution.run(
         contributionId,
         sessionId,
         submission.rowId, // rowId is topicId in frontend
@@ -85,7 +93,7 @@ router.post('/sessions/:sessionId/contributions', (req, res) => {
       WHERE session_id = ? AND participant_id = ?
     `);
     
-    updateParticipant.run(new Date().toISOString(), sessionId, participantId);
+    await updateParticipant.run(new Date().toISOString(), sessionId, participantId);
 
     const contributionsCount = savedCount;
 
@@ -124,12 +132,12 @@ router.post('/sessions/:sessionId/contributions', (req, res) => {
  * - Aggregates vote counts
  * - Returns structured data matching frontend expectations
  */
-router.get('/sessions/:sessionId/contributions', (req, res) => {
+router.get('/sessions/:sessionId/contributions', async (req, res) => {
   const { sessionId } = req.params;
   const { state } = req.query;
 
   // Check session exists
-  const session = db.prepare('SELECT session_id, session_state FROM sessions WHERE session_id = ?').get(sessionId);
+  const session = await db.prepare('SELECT session_id, session_state FROM sessions WHERE session_id = ?').get(sessionId);
   if (!session) {
     return res.status(404).json({
       success: false,
@@ -161,17 +169,19 @@ router.get('/sessions/:sessionId/contributions', (req, res) => {
         c.disruption,
         c.reimagination,
         c.submitted_at,
-        COUNT(v.vote_id) as votes
+        COUNT(v.vote_id)::int as votes
       FROM contributions c
       JOIN topics t ON c.topic_id = t.topic_id
       LEFT JOIN session_participants sp ON c.participant_id = sp.participant_id AND c.session_id = sp.session_id
       LEFT JOIN votes v ON c.contribution_id = v.contribution_id
       WHERE c.session_id = ?
-      GROUP BY c.contribution_id
+      GROUP BY c.contribution_id, c.session_id, c.topic_id, t.topic_name, t.domain, 
+               c.participant_id, sp.display_name, c.current_status, c.minor_impact, 
+               c.disruption, c.reimagination, c.submitted_at, t.sort_order
       ORDER BY t.sort_order, c.submitted_at
     `;
 
-    const contributions = db.prepare(query).all(sessionId);
+    const contributions = await db.prepare(query).all(sessionId);
 
     // Transform to match frontend structure (grouped by topic)
     const topicsMap = {};

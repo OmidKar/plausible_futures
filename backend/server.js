@@ -3,7 +3,6 @@ import cors from 'cors';
 import sessionsRouter from './routes/sessions.js';
 import contributionsRouter from './routes/contributions.js';
 import votesRouter from './routes/votes.js';
-import db from './db.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;

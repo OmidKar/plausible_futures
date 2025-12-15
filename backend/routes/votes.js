@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import db from '../db.js';
+import db from '../db-postgres.js';
 
 const router = Router();
 
@@ -14,7 +14,7 @@ const router = Router();
  * - Only allowed when session is in "voting" state
  * - Returns updated vote count
  */
-router.post('/sessions/:sessionId/votes', (req, res) => {
+router.post('/sessions/:sessionId/votes', async (req, res) => {
   const { sessionId } = req.params;
   const { contributionId, voterId } = req.body;
 
@@ -27,7 +27,7 @@ router.post('/sessions/:sessionId/votes', (req, res) => {
   }
 
   // Check session exists and is in voting state
-  const session = db.prepare('SELECT session_id, session_state FROM sessions WHERE session_id = ?').get(sessionId);
+  const session = await db.prepare('SELECT session_id, session_state FROM sessions WHERE session_id = ?').get(sessionId);
   if (!session) {
     return res.status(404).json({
       success: false,
@@ -43,7 +43,7 @@ router.post('/sessions/:sessionId/votes', (req, res) => {
   }
 
   // Check contribution exists and get participant_id
-  const contribution = db.prepare(`
+  const contribution = await db.prepare(`
     SELECT contribution_id, participant_id, session_id 
     FROM contributions 
     WHERE contribution_id = ? AND session_id = ?
@@ -65,7 +65,7 @@ router.post('/sessions/:sessionId/votes', (req, res) => {
   }
 
   // Check if user already voted on this contribution
-  const existingVote = db.prepare(`
+  const existingVote = await db.prepare(`
     SELECT vote_id FROM votes 
     WHERE contribution_id = ? AND voter_id = ?
   `).get(contributionId, voterId);
@@ -81,14 +81,14 @@ router.post('/sessions/:sessionId/votes', (req, res) => {
     // Insert vote
     const voteId = `vote-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO votes (vote_id, contribution_id, voter_id, voted_at)
       VALUES (?, ?, ?, ?)
     `).run(voteId, contributionId, voterId, new Date().toISOString());
 
     // Get updated vote count
-    const voteCount = db.prepare(`
-      SELECT COUNT(*) as count 
+    const voteCount = await db.prepare(`
+      SELECT COUNT(*)::int as count 
       FROM votes 
       WHERE contribution_id = ?
     `).get(contributionId);
@@ -96,7 +96,7 @@ router.post('/sessions/:sessionId/votes', (req, res) => {
     res.status(200).json({
       success: true,
       contributionId: contributionId,
-      newVoteCount: voteCount.count,
+      newVoteCount: parseInt(voteCount.count) || 0,
       message: 'Vote recorded successfully'
     });
 
@@ -123,12 +123,12 @@ router.post('/sessions/:sessionId/votes', (req, res) => {
  * Helper endpoint: Get vote count for a contribution
  * GET /api/sessions/:sessionId/contributions/:contributionId/votes
  */
-router.get('/sessions/:sessionId/contributions/:contributionId/votes', (req, res) => {
+router.get('/sessions/:sessionId/contributions/:contributionId/votes', async (req, res) => {
   const { contributionId } = req.params;
 
   try {
-    const result = db.prepare(`
-      SELECT COUNT(*) as count 
+    const result = await db.prepare(`
+      SELECT COUNT(*)::int as count 
       FROM votes 
       WHERE contribution_id = ?
     `).get(contributionId);
@@ -136,7 +136,7 @@ router.get('/sessions/:sessionId/contributions/:contributionId/votes', (req, res
     res.status(200).json({
       success: true,
       contributionId: contributionId,
-      voteCount: result.count
+      voteCount: parseInt(result.count) || 0
     });
   } catch (error) {
     console.error('Error fetching vote count:', error);

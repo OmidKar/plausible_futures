@@ -1,5 +1,5 @@
 import express from 'express';
-import db from '../db.js';
+import db from '../db-postgres.js';
 import { v4 as uuidv4 } from 'uuid';
 
 const router = express.Router();
@@ -8,7 +8,7 @@ const router = express.Router();
  * POST /api/sessions
  * Create a new session
  */
-router.post('/sessions', (req, res) => {
+router.post('/sessions', async (req, res) => {
   const { name, moderatorId, moderatorName, moderatorEmail } = req.body;
 
   if (!name || !moderatorId) {
@@ -23,13 +23,13 @@ router.post('/sessions', (req, res) => {
     const now = new Date().toISOString();
 
     // Create session
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO sessions (session_id, name, moderator_id, session_state, created_at)
       VALUES (?, ?, ?, ?, ?)
     `).run(sessionId, name, moderatorId, 'setup', now);
 
     // Add moderator as participant
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO session_participants (session_id, participant_id, display_name, email, status, joined_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(sessionId, moderatorId, moderatorName || 'Moderator', moderatorEmail || moderatorId, 'joined', now);
@@ -58,7 +58,7 @@ router.post('/sessions', (req, res) => {
  * POST /api/sessions/:sessionId/topics
  * Add a topic to a session
  */
-router.post('/sessions/:sessionId/topics', (req, res) => {
+router.post('/sessions/:sessionId/topics', async (req, res) => {
   const { sessionId } = req.params;
   const { domain, topicName, sortOrder } = req.body;
 
@@ -71,7 +71,7 @@ router.post('/sessions/:sessionId/topics', (req, res) => {
 
   try {
     // Check if session exists
-    const session = db.prepare('SELECT session_id FROM sessions WHERE session_id = ?').get(sessionId);
+    const session = await db.prepare('SELECT session_id FROM sessions WHERE session_id = ?').get(sessionId);
     if (!session) {
       return res.status(404).json({
         success: false,
@@ -81,7 +81,7 @@ router.post('/sessions/:sessionId/topics', (req, res) => {
 
     const topicId = uuidv4();
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO topics (topic_id, session_id, domain, topic_name, sort_order)
       VALUES (?, ?, ?, ?, ?)
     `).run(topicId, sessionId, domain, topicName, sortOrder || 0);
@@ -110,7 +110,7 @@ router.post('/sessions/:sessionId/topics', (req, res) => {
  * POST /api/sessions/:sessionId/participants
  * Add a participant to a session
  */
-router.post('/sessions/:sessionId/participants', (req, res) => {
+router.post('/sessions/:sessionId/participants', async (req, res) => {
   const { sessionId } = req.params;
   const { participantId, displayName, email } = req.body;
 
@@ -123,7 +123,7 @@ router.post('/sessions/:sessionId/participants', (req, res) => {
 
   try {
     // Check if session exists
-    const session = db.prepare('SELECT session_id FROM sessions WHERE session_id = ?').get(sessionId);
+    const session = await db.prepare('SELECT session_id FROM sessions WHERE session_id = ?').get(sessionId);
     if (!session) {
       return res.status(404).json({
         success: false,
@@ -132,7 +132,7 @@ router.post('/sessions/:sessionId/participants', (req, res) => {
     }
 
     // Check if participant already exists
-    const existing = db.prepare(`
+    const existing = await db.prepare(`
       SELECT participant_id FROM session_participants 
       WHERE session_id = ? AND participant_id = ?
     `).get(sessionId, participantId);
@@ -146,7 +146,7 @@ router.post('/sessions/:sessionId/participants', (req, res) => {
 
     const now = new Date().toISOString();
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO session_participants (session_id, participant_id, display_name, email, status, joined_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(sessionId, participantId, displayName || participantId, email || participantId, 'joined', now);
@@ -176,7 +176,7 @@ router.post('/sessions/:sessionId/participants', (req, res) => {
  * PATCH /api/sessions/:sessionId/state
  * Update session state
  */
-router.patch('/sessions/:sessionId/state', (req, res) => {
+router.patch('/sessions/:sessionId/state', async (req, res) => {
   const { sessionId } = req.params;
   const { state } = req.body;
 
@@ -191,7 +191,7 @@ router.patch('/sessions/:sessionId/state', (req, res) => {
 
   try {
     // Check if session exists
-    const session = db.prepare('SELECT session_id FROM sessions WHERE session_id = ?').get(sessionId);
+    const session = await db.prepare('SELECT session_id FROM sessions WHERE session_id = ?').get(sessionId);
     if (!session) {
       return res.status(404).json({
         success: false,
@@ -199,7 +199,7 @@ router.patch('/sessions/:sessionId/state', (req, res) => {
       });
     }
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE sessions 
       SET session_state = ?
       WHERE session_id = ?
@@ -226,11 +226,11 @@ router.patch('/sessions/:sessionId/state', (req, res) => {
  * GET /api/sessions/:sessionId
  * Get session details
  */
-router.get('/sessions/:sessionId', (req, res) => {
+router.get('/sessions/:sessionId', async (req, res) => {
   const { sessionId } = req.params;
 
   try {
-    const session = db.prepare(`
+    const session = await db.prepare(`
       SELECT session_id, name, moderator_id, session_state, created_at
       FROM sessions
       WHERE session_id = ?
@@ -244,7 +244,7 @@ router.get('/sessions/:sessionId', (req, res) => {
     }
 
     // Get topics
-    const topics = db.prepare(`
+    const topics = await db.prepare(`
       SELECT topic_id, domain, topic_name, sort_order
       FROM topics
       WHERE session_id = ?
@@ -252,7 +252,7 @@ router.get('/sessions/:sessionId', (req, res) => {
     `).all(sessionId);
 
     // Get participants
-    const participants = db.prepare(`
+    const participants = await db.prepare(`
       SELECT participant_id, display_name, email, status, joined_at, submitted_at
       FROM session_participants
       WHERE session_id = ?
@@ -284,7 +284,7 @@ router.get('/sessions/:sessionId', (req, res) => {
  * GET /api/sessions
  * List all sessions (optionally filtered)
  */
-router.get('/sessions', (req, res) => {
+router.get('/sessions', async (req, res) => {
   const { state, moderatorId } = req.query;
 
   try {
@@ -308,7 +308,7 @@ router.get('/sessions', (req, res) => {
 
     query += ' ORDER BY created_at DESC';
 
-    const sessions = db.prepare(query).all(...params);
+    const sessions = await db.prepare(query).all(...params);
 
     res.json({
       success: true,
@@ -336,7 +336,7 @@ router.get('/sessions', (req, res) => {
  * POST /api/sessions/:sessionId/join
  * Simplified endpoint for users to join a session
  */
-router.post('/sessions/:sessionId/join', (req, res) => {
+router.post('/sessions/:sessionId/join', async (req, res) => {
   const { sessionId } = req.params;
   const { participantId, displayName, email } = req.body;
 
@@ -349,7 +349,7 @@ router.post('/sessions/:sessionId/join', (req, res) => {
 
   try {
     // Check if session exists
-    const session = db.prepare('SELECT session_id, name, session_state FROM sessions WHERE session_id = ?').get(sessionId);
+    const session = await db.prepare('SELECT session_id, name, session_state FROM sessions WHERE session_id = ?').get(sessionId);
     if (!session) {
       return res.status(404).json({
         success: false,
@@ -366,7 +366,7 @@ router.post('/sessions/:sessionId/join', (req, res) => {
     }
 
     // Check if participant already exists
-    const existing = db.prepare(`
+    const existing = await db.prepare(`
       SELECT participant_id FROM session_participants 
       WHERE session_id = ? AND participant_id = ?
     `).get(sessionId, participantId);
@@ -389,7 +389,7 @@ router.post('/sessions/:sessionId/join', (req, res) => {
 
     const now = new Date().toISOString();
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO session_participants (session_id, participant_id, display_name, email, status, joined_at)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(sessionId, participantId, displayName || participantId, email || participantId, 'joined', now);
@@ -422,12 +422,12 @@ router.post('/sessions/:sessionId/join', (req, res) => {
  * DELETE /api/sessions/:sessionId
  * Delete a session and all related data
  */
-router.delete('/sessions/:sessionId', (req, res) => {
+router.delete('/sessions/:sessionId', async (req, res) => {
   const { sessionId } = req.params;
 
   try {
     // Check if session exists
-    const session = db.prepare('SELECT session_id FROM sessions WHERE session_id = ?').get(sessionId);
+    const session = await db.prepare('SELECT session_id FROM sessions WHERE session_id = ?').get(sessionId);
     if (!session) {
       return res.status(404).json({
         success: false,
@@ -436,11 +436,11 @@ router.delete('/sessions/:sessionId', (req, res) => {
     }
 
     // Delete in order to respect foreign key constraints
-    db.prepare('DELETE FROM votes WHERE contribution_id IN (SELECT contribution_id FROM contributions WHERE session_id = ?)').run(sessionId);
-    db.prepare('DELETE FROM contributions WHERE session_id = ?').run(sessionId);
-    db.prepare('DELETE FROM session_participants WHERE session_id = ?').run(sessionId);
-    db.prepare('DELETE FROM topics WHERE session_id = ?').run(sessionId);
-    db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId);
+    await db.prepare('DELETE FROM votes WHERE contribution_id IN (SELECT contribution_id FROM contributions WHERE session_id = ?)').run(sessionId);
+    await db.prepare('DELETE FROM contributions WHERE session_id = ?').run(sessionId);
+    await db.prepare('DELETE FROM session_participants WHERE session_id = ?').run(sessionId);
+    await db.prepare('DELETE FROM topics WHERE session_id = ?').run(sessionId);
+    await db.prepare('DELETE FROM sessions WHERE session_id = ?').run(sessionId);
 
     res.json({
       success: true,
@@ -460,12 +460,12 @@ router.delete('/sessions/:sessionId', (req, res) => {
  * GET /api/sessions/:sessionId/status
  * Get submission status for all participants
  */
-router.get('/sessions/:sessionId/status', (req, res) => {
+router.get('/sessions/:sessionId/status', async (req, res) => {
   const { sessionId } = req.params;
 
   try {
     // Check if session exists
-    const session = db.prepare('SELECT session_id, name, session_state FROM sessions WHERE session_id = ?').get(sessionId);
+    const session = await db.prepare('SELECT session_id, name, session_state FROM sessions WHERE session_id = ?').get(sessionId);
     if (!session) {
       return res.status(404).json({
         success: false,
@@ -474,7 +474,7 @@ router.get('/sessions/:sessionId/status', (req, res) => {
     }
 
     // Get all participants with their submission status
-    const participants = db.prepare(`
+    const participants = await db.prepare(`
       SELECT 
         participant_id,
         display_name,
